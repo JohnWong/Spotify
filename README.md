@@ -7,3 +7,6 @@ In this project, I've aimed to add top 100 list for a certain date from the Bill
 ```
 USER_ID=xxx CLIENT_ID=xxx CLIENT_SECRET=xxx python main.py
 ```
+
+User ID: https://www.spotify.com/us/account/profile/
+Client ID & Secret: https://developer.spotify.com/dashboard
