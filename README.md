@@ -9,4 +9,5 @@ USER_ID=xxx CLIENT_ID=xxx CLIENT_SECRET=xxx python main.py
 ```
 
 User ID: https://www.spotify.com/us/account/profile/
+
 Client ID & Secret: https://developer.spotify.com/dashboard
