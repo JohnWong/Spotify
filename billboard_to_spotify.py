@@ -1,17 +1,29 @@
+# -*- coding: utf-8 -*-
 import os
-import requests
 import base64
 import datetime 
-import concurrent.futures
-import requests
 import time
+import json
 from bs4 import BeautifulSoup
+import requests
+import threading
 
+try:
+    from sae.storage import Bucket
+    import sae_patch
+    sae_patch.patch()
+except:
+    pass
+
+try:
+    from queue import Queue
+except:
+    from Queue import Queue
 
 class BillboardToSpotify:
 
-    name = f"Billboard Hot 100"
-    description = f"The unofficial Billboard Hot 100 playlist, updated in {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M%Z')} . Reference: https://www.billboard.com/charts/hot-100/"
+    name = "Billboard Hot 100"
+    description = "The unofficial Billboard Hot 100 playlist, updated in %s} . Reference: https://www.billboard.com/charts/hot-100/" % datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M%Z')
 
     def __init__(self, user_id, client_id, client_secret, redirect_uri):
 
@@ -28,10 +40,11 @@ class BillboardToSpotify:
     def request_user_authorization(self):
         """ Two-step function returns access_code to use in the next steps.Go to link in the terminal, accept authorization
         and copy the code (you should find in the "code=" part) in url.Then paste the code in terminal"""
-        auth = base64.b64encode(f'{self.client_id}:{self.client_secret}'.encode('ascii')).decode('ascii')
+        concat = self.client_id+':'+self.client_secret
+        auth = base64.b64encode(concat.encode('ascii')).decode('ascii')
         headers = {
-            'Authorization': f'Basic {auth}',
-            'Content-Type':'application/x-www-form-urlencoded'
+            'Authorization': "Basic " + auth,
+            'Content-Type': "application/x-www-form-urlencoded"
         }
         
         with open("refresh_token.txt", 'a+') as f:
@@ -47,10 +60,10 @@ class BillboardToSpotify:
             print("Response: %d refresh" % r.status_code)
             if r.status_code == 200:
                 j = r.json()
-                self.access_token= f"{j['access_token']}"
-                print(f"Token: {self.access_token}")
+                self.access_token= j['access_token']
+                print("Token: %s" % self.access_token)
                 with open("refresh_token.txt", 'w') as f:
-                    f.write(f"{j['refresh_token'] if 'refresh_token' in j else token}")
+                    f.write(j['refresh_token'] if 'refresh_token' in j else token)
                 return
         
         params = {
@@ -63,7 +76,6 @@ class BillboardToSpotify:
         r = requests.get(self.endpoint, params=params)
         print("Response: %d account" % r.status_code)
         print(r.url)
-        os.system(f"open {r.url}")
         code = input("paste code here: ")
         
         data = {
@@ -75,9 +87,9 @@ class BillboardToSpotify:
         r = requests.post(self.token_endpoint, headers=headers, data=data)
         print("Response: %d new_token" % r.status_code)
         r = r.json()
-        self.access_token= f"{r['access_token']}"
+        self.access_token= r['access_token']
         with open("refresh_token.txt", 'w') as f:
-            f.write(f"{r['refresh_token']}")
+            f.write(r['refresh_token'])
 
 ########################## Picking hot 100 song for a certain date from Billboard#######################################
     def billboard_top_100(self):
@@ -95,17 +107,17 @@ class BillboardToSpotify:
                           .replace('\n','')
                           .replace('Featuring', ' ')
                           .replace('  ', ' ') 
-                          .replace('4x4xU', '4×4×U') 
+                          .replace('4x4xU', u'4×4×U')
                           for songs in song_names]
         return formatted_songs
 
     def creating_playlist(self):
         """creates a private Spotify playlist"""
 
-        playlist_endpoint = f"https://api.spotify.com/v1/users/{self.user_id}/playlists"
+        playlist_endpoint = "https://api.spotify.com/v1/users/%s/playlists" % self.user_id
 
         headers = { 
-            "Authorization": f"Bearer {self.access_token}",
+            "Authorization": "Bearer " + self.access_token,
             "Content-Type": "application/json",
         }
         data ={
@@ -123,7 +135,7 @@ class BillboardToSpotify:
     def query_song_uri(self, song):
         print("Query: %s" % song)
         # limit 1 result in wired results
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.access_token}"}
+        headers = {"Content-Type": "application/json", "Authorization": "Bearer " + self.access_token}
         songuris_endpoint = 'https://api.spotify.com/v1/search?'
         retry = 3
         query = song
@@ -141,19 +153,18 @@ class BillboardToSpotify:
                 if tracks["total"] < 1:
                     # no result, retry without artist
                     if retry == 3:
-                        query = song.replace('artist:', '')
-                    elif retry == 2:
                         query = song[0:song.find('artist:')]
                     retry -= 1
-                    print(f"Retry: {query}")
+                    print("Retry: " + query)
                     continue
                 uris = tracks['items'][0]['uri']
+                print("Found: " + tracks['items'][0]['name'])
                 return uris
             except Exception as e:
                 if retry > 0:
                     retry -= 1
                     time.sleep(2)
-                    print(f"Retry: {query}")
+                    print("Retry: " + query)
                     continue
                 raise e
 
@@ -162,21 +173,37 @@ class BillboardToSpotify:
         """reachs uri parameters of songs and return a uris array ready for use in the next steps"""
         formatted_songs = self.billboard_top_100()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            uris_array = list(executor.map(self.query_song_uri, formatted_songs))
-        return uris_array
+        result = {}
+        jobs = Queue()
+
+        def do_stuff(q):
+            while not q.empty():
+                value = q.get()
+                uri = self.query_song_uri(value)
+                result[value] = uri
+                q.task_done()
+
+        for i in formatted_songs:
+            jobs.put(i)
+
+        for i in range(10):
+            worker = threading.Thread(target=do_stuff, args=(jobs,))
+            worker.start()
+
+        jobs.join()
+        return [result[song] for song in formatted_songs]
 
 # ############################GET PLAYLIST ID############################################################################
     def get_playlist_id(self):
         """returns an endpoint to use in the next function which is to add all songs to the playlist"""
-        self.base_url = f'https://api.spotify.com/v1/users/{self.user_id}/playlists'
+        self.base_url = 'https://api.spotify.com/v1/users/%s/playlists' % self.user_id
         params = {
             "limit": 30,
             "offset": 0,
         }
 
         headers_playlist = {"Content-Type": "application/json",
-                            "Authorization": f"Bearer {self.access_token}"}
+                            "Authorization": "Bearer " + self.access_token}
         response_playlist = requests.get(self.base_url, params=params, headers = headers_playlist)
         print("Response: %d get_playlist_id" % response_playlist.status_code)
         response_playlist = response_playlist.json()
@@ -187,20 +214,21 @@ class BillboardToSpotify:
 
 
 # ######################################## Adding songs to list ##########################################################
-    def adding_playlist(self, end_point):
+    def adding_playlist(self, end_point, song_uris):
         """adds songs from Billboard website to Spotify playlist just created"""
         # filter
-        uris = list(filter(lambda x: x != None, self.song_uris()))
+        uris = list(filter(lambda x: x != None, song_uris))
         body = {
             "uris": uris,
             "position": 0,
         }
+        print(len(uris))
         headers = {
             "Content-Type": "application/json", 
-            "Authorization": f"Bearer {self.access_token}"
+            "Authorization": "Bearer " + self.access_token
         }
         response = requests.post(end_point, headers = headers, json=body)
-        print(f"Response: {response.status_code} adding_playlist")
+        print("Response: %s adding_playlist" % response.status_code)
         if response.status_code >= 400:
             print(uris)
             print(response.json())
@@ -213,7 +241,7 @@ class BillboardToSpotify:
         flag = True
         while(flag):
             headers = { 
-                "Authorization": f"Bearer {self.access_token}",
+                "Authorization": "Bearer " + self.access_token,
                 "Content-Type": "application/json",
             }
             params = {
@@ -222,14 +250,17 @@ class BillboardToSpotify:
                 'offset': len(tracks),
             }
             r = requests.get(end_point, headers=headers, params=params)
-            print(f"Response: {r.status_code} tracks")
+            print("Response: %d tracks" % r.status_code)
             j = r.json()
             tracks = tracks + [item['track'] for item in j['items']]
 
             flag = len(j['items']) > 0
 
+        if len(tracks) == 0:
+            return
+        
         headers = { 
-            "Authorization": f"Bearer {self.access_token}",
+            "Authorization": "Bearer " + self.access_token,
             "Content-Type": "application/json",
         }
         
@@ -237,14 +268,14 @@ class BillboardToSpotify:
             'tracks': tracks
         }
         r = requests.delete(end_point, headers=headers, json=data)
-        print(f"Response: {r.status_code} clear_playlist")
+        print("Response: %d clear_playlist" % r.status_code)
 
 # ######################################## Update description ##########################################################
     def update_playlist_description(self, end_point):
         """update description of playlist"""
         playlist_endpoint = end_point.replace("/tracks", "")
         headers = { 
-            "Authorization": f"Bearer {self.access_token}",
+            "Authorization": "Bearer " + self.access_token,
             "Content-Type": "application/json",
         }
         data ={
@@ -260,7 +291,7 @@ class BillboardToSpotify:
         """add cover of playlist"""
         playlist_endpoint = end_point.replace("/tracks", "/images")
         headers = { 
-            "Authorization": f"Bearer {self.access_token}",
+            "Authorization": "Bearer " + self.access_token,
             "Content-Type": "image/jpeg",
         }
         with open("billboard.png", "rb") as f:
@@ -277,7 +308,8 @@ def updateBillboard(USER_ID, CLIENT_SECRET, CLIENT_ID, REDIRECT_URI):
     # the authorization process will be completed and the token will be accessed.
     billboard_playlist.request_user_authorization()
 
-    # billboard_playlist.query_song_uri("4x4xU artist:Lainey Wilson")
+    # billboard_playlist.query_song_uri("Te Queria Ver artist:Aleman X Neton Vega")
+    # return
     end_point, snapshot_id = billboard_playlist.get_playlist_id()
     if end_point != None:
         billboard_playlist.clear_playlist(end_point, snapshot_id)
@@ -285,6 +317,18 @@ def updateBillboard(USER_ID, CLIENT_SECRET, CLIENT_ID, REDIRECT_URI):
     else:
         ## create a private spotify playlist named by the entered date by calling the function creation_playlist
         end_point = billboard_playlist.creating_playlist()
-        billboard_playlist.add_cover(end_point)    
+        billboard_playlist.add_cover(end_point)
+    songs = billboard_playlist.song_uris()
     ## add songs to playlist
-    billboard_playlist.adding_playlist(end_point)
+    billboard_playlist.adding_playlist(end_point, songs)
+
+def updateBillboardForSAE():
+    with open("api.json", "r") as f:
+        content = json.loads(f.read())
+    
+    USER_ID = content['USER_ID']
+    CLIENT_ID = content["CLIENT_ID"]
+    CLIENT_SECRET = content["CLIENT_SECRET"]
+    REDIRECT_URI= 'https://example.com'
+
+    updateBillboard(USER_ID, CLIENT_SECRET, CLIENT_ID, REDIRECT_URI)

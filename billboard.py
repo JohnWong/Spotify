@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from billboard_to_spotify import updateBillboard
 import os
 USER_ID = os.environ["USER_ID"]
