@@ -263,12 +263,16 @@ class BillboardToSpotify:
             "Authorization": "Bearer " + self.access_token,
             "Content-Type": "application/json",
         }
-        
-        data = {
-            'tracks': tracks
-        }
-        r = requests.delete(end_point, headers=headers, json=data)
-        print("Response: %d clear_playlist" % r.status_code)
+      
+
+        n = 100
+        # Iterate and slice the list
+        for i in range(0, len(tracks), n):
+            data = {
+                'tracks': tracks[i:i + n]
+            }
+            r = requests.delete(end_point, headers=headers, json=data)
+            print("Response: %d clear_playlist" % r.status_code)
 
 # ######################################## Update description ##########################################################
     def update_playlist_description(self, end_point):
