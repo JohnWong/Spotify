@@ -23,7 +23,7 @@ except:
 class BillboardToSpotify:
 
     name = "Billboard Hot 100"
-    description = "The unofficial Billboard Hot 100 playlist, updated in %s} . Reference: https://www.billboard.com/charts/hot-100/" % datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M%Z')
+    description = "The unofficial Billboard Hot 100 playlist, updated in %s. Reference: https://www.billboard.com/charts/hot-100/" % datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M%Z')
 
     def __init__(self, user_id, client_id, client_secret, redirect_uri):
 
