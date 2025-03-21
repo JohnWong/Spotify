@@ -8,7 +8,7 @@ import time
 from bs4 import BeautifulSoup
 
 
-class BillboardToSpotifyt:
+class BillboardToSpotify:
 
     name = f"Billboard Hot 100"
     description = f"The unofficial Billboard Hot 100 playlist, updated in {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M%Z')} . Reference: https://www.billboard.com/charts/hot-100/"
@@ -145,7 +145,7 @@ class BillboardToSpotifyt:
                     elif retry == 2:
                         query = song[0:song.find('artist:')]
                     retry -= 1
-                    print(f"Retry: {song}")
+                    print(f"Retry: {query}")
                     continue
                 uris = tracks['items'][0]['uri']
                 return uris
@@ -153,7 +153,7 @@ class BillboardToSpotifyt:
                 if retry > 0:
                     retry -= 1
                     time.sleep(2)
-                    print(f"Retry: {song}")
+                    print(f"Retry: {query}")
                     continue
                 raise e
 
@@ -267,4 +267,24 @@ class BillboardToSpotifyt:
             data = base64.b64encode(f.read())
         response = requests.put(playlist_endpoint, headers=headers, data=data)
         print("Response: %d add_cover" % response.status_code)
-        
+
+def updateBillboard(USER_ID, CLIENT_SECRET, CLIENT_ID, REDIRECT_URI):
+    ## enter a date for reaching top 100 song of this date
+    billboard_playlist = BillboardToSpotify(user_id=USER_ID,client_secret=CLIENT_SECRET,client_id=CLIENT_ID,redirect_uri=REDIRECT_URI)
+
+    ## To reach token you should call the function of request_user_authorization. This process has two step. 1. Go to link
+    #and confirm authorization. 2. Paste the code in the url code= part.As a result of this two-step process,
+    # the authorization process will be completed and the token will be accessed.
+    billboard_playlist.request_user_authorization()
+
+    # billboard_playlist.query_song_uri("4x4xU artist:Lainey Wilson")
+    end_point, snapshot_id = billboard_playlist.get_playlist_id()
+    if end_point != None:
+        billboard_playlist.clear_playlist(end_point, snapshot_id)
+        billboard_playlist.update_playlist_description(end_point)
+    else:
+        ## create a private spotify playlist named by the entered date by calling the function creation_playlist
+        end_point = billboard_playlist.creating_playlist()
+        billboard_playlist.add_cover(end_point)    
+    ## add songs to playlist
+    billboard_playlist.adding_playlist(end_point)
