@@ -322,8 +322,7 @@ def updateBillboard(USER_ID, CLIENT_SECRET, CLIENT_ID, REDIRECT_URI):
     billboard_playlist.adding_playlist(end_point, songs)
 
 def updateBillboardForSAE():
-    with open("api.json", "r") as f:
-        content = json.loads(f.read())
+    content = json.loads(read_refresh_token("api.json"))    
     
     USER_ID = content['USER_ID']
     CLIENT_ID = content["CLIENT_ID"]
