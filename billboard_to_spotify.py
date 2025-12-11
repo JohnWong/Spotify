@@ -7,13 +7,10 @@ import json
 from bs4 import BeautifulSoup
 import requests
 import threading
+import sae_patch
 
-try:
-    from sae.storage import Bucket
-    import sae_patch
-    sae_patch.patch()
-except:
-    pass
+read_refresh_token = sae_patch.read_refresh_token
+write_refresh_token = sae_patch.write_refresh_token
 
 try:
     from queue import Queue
@@ -47,9 +44,7 @@ class BillboardToSpotify:
             'Content-Type': "application/x-www-form-urlencoded"
         }
         
-        with open("refresh_token.txt", 'a+') as f:
-            f.seek(0)
-            token = f.read()
+        token = read_refresh_token("refresh_token.txt")
         if len(token) > 0:
             data = {
                 'grant_type': 'refresh_token',
@@ -62,8 +57,7 @@ class BillboardToSpotify:
                 j = r.json()
                 self.access_token= j['access_token']
                 print("Token: %s" % self.access_token)
-                with open("refresh_token.txt", 'w') as f:
-                    f.write(j['refresh_token'] if 'refresh_token' in j else token)
+                write_refresh_token(j['refresh_token'] if 'refresh_token' in j else token, "refresh_token.txt")
                 return
         
         params = {
@@ -76,7 +70,7 @@ class BillboardToSpotify:
         r = requests.get(self.endpoint, params=params)
         print("Response: %d account" % r.status_code)
         print(r.url)
-        code = input("paste code here: ")
+        code = raw_input("paste code here: ")
         
         data = {
             'grant_type': 'authorization_code',
@@ -88,8 +82,7 @@ class BillboardToSpotify:
         print("Response: %d new_token" % r.status_code)
         r = r.json()
         self.access_token= r['access_token']
-        with open("refresh_token.txt", 'w') as f:
-            f.write(r['refresh_token'])
+        write_refresh_token(r['refresh_token'], "refresh_token.txt")
 
 ########################## Picking hot 100 song for a certain date from Billboard#######################################
     def billboard_top_100(self):
@@ -208,7 +201,7 @@ class BillboardToSpotify:
         print("Response: %d get_playlist_id" % response_playlist.status_code)
         response_playlist = response_playlist.json()
         for item in response_playlist['items']:
-            if item['name'] == self.name:
+            if item['name'] == self.name and item['owner']['id'] == self.user_id:
                 return (item['tracks']['href'], item['snapshot_id'])
         return (None, None)
 
@@ -316,9 +309,11 @@ def updateBillboard(USER_ID, CLIENT_SECRET, CLIENT_ID, REDIRECT_URI):
     # return
     end_point, snapshot_id = billboard_playlist.get_playlist_id()
     if end_point != None:
+        print("end_point: %s" % end_point)
         billboard_playlist.clear_playlist(end_point, snapshot_id)
         billboard_playlist.update_playlist_description(end_point)
     else:
+        raise Exception("get_playlist_id failed")
         ## create a private spotify playlist named by the entered date by calling the function creation_playlist
         end_point = billboard_playlist.creating_playlist()
         billboard_playlist.add_cover(end_point)
@@ -336,3 +331,6 @@ def updateBillboardForSAE():
     REDIRECT_URI= 'https://example.com'
 
     updateBillboard(USER_ID, CLIENT_SECRET, CLIENT_ID, REDIRECT_URI)
+
+if __name__ == "__main__":
+    updateBillboardForSAE()
