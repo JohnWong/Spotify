@@ -17,13 +17,28 @@ try:
 except:
     from Queue import Queue
 
+
+def _request_with_retry(method, url, max_retries=5, **kwargs):
+    """HTTP request that honors Spotify's 429 rate-limit Retry-After header."""
+    response = None
+    for attempt in range(max_retries):
+        response = requests.request(method, url, **kwargs)
+        if response.status_code != 429:
+            return response
+        retry_after = int(response.headers.get("Retry-After", "2"))
+        print("Rate limited (429), retry after %ds (attempt %d/%d)"
+              % (retry_after, attempt + 1, max_retries))
+        time.sleep(retry_after + 1)
+    return response
+
+
 class BillboardToSpotify:
 
     name = "Billboard Hot 100"
-    description = "The unofficial Billboard Hot 100 playlist, updated in %s. Reference: https://www.billboard.com/charts/hot-100/" % datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M%Z')
 
     def __init__(self, user_id, client_id, client_secret, redirect_uri):
 
+        self.description = "The unofficial Billboard Hot 100 playlist, updated in %s. Reference: https://www.billboard.com/charts/hot-100/" % datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M%Z')
         self.url ="https://www.billboard.com/charts/hot-100/"
         self.user_id = user_id
         self.client_id = client_id
@@ -220,11 +235,12 @@ class BillboardToSpotify:
             "Content-Type": "application/json", 
             "Authorization": "Bearer " + self.access_token
         }
-        response = requests.post(end_point, headers = headers, json=body)
+        response = _request_with_retry("POST", end_point, headers=headers, json=body)
         print("Response: %s adding_playlist" % response.status_code)
         if response.status_code >= 400:
             print(uris)
             print(response.json())
+            raise Exception("adding_playlist failed: %d" % response.status_code)
 
 # ######################################## Remove songs from list ##########################################################
     def clear_playlist(self, end_point, snapshot_id):
@@ -264,7 +280,7 @@ class BillboardToSpotify:
             data = {
                 'tracks': tracks[i:i + n]
             }
-            r = requests.delete(end_point, headers=headers, json=data)
+            r = _request_with_retry("DELETE", end_point, headers=headers, json=data)
             print("Response: %d clear_playlist" % r.status_code)
 
 # ######################################## Update description ##########################################################
@@ -305,20 +321,24 @@ def updateBillboard(USER_ID, CLIENT_SECRET, CLIENT_ID, REDIRECT_URI):
     # the authorization process will be completed and the token will be accessed.
     billboard_playlist.request_user_authorization()
 
-    # billboard_playlist.query_song_uri("Te Queria Ver artist:Aleman X Neton Vega")
-    # return
+    # Locate the playlist, or create it (with cover) on first run.
     end_point, snapshot_id = billboard_playlist.get_playlist_id()
-    if end_point != None:
-        print("end_point: %s" % end_point)
-        billboard_playlist.clear_playlist(end_point, snapshot_id)
-        billboard_playlist.update_playlist_description(end_point)
-    else:
-        raise Exception("get_playlist_id failed")
-        ## create a private spotify playlist named by the entered date by calling the function creation_playlist
+    if end_point is None:
+        print("playlist not found, creating a new one")
         end_point = billboard_playlist.creating_playlist()
         billboard_playlist.add_cover(end_point)
-    songs = billboard_playlist.song_uris()
-    ## add songs to playlist
+        snapshot_id = None
+    print("end_point: %s" % end_point)
+
+    # Resolve all songs FIRST. Only touch the playlist once we have a
+    # non-empty result, so a failed Billboard/search step never leaves the
+    # playlist cleared-but-empty.
+    songs = [uri for uri in billboard_playlist.song_uris() if uri is not None]
+    if len(songs) == 0:
+        raise Exception("no songs resolved from Billboard, aborting without clearing playlist")
+
+    billboard_playlist.update_playlist_description(end_point)
+    billboard_playlist.clear_playlist(end_point, snapshot_id)
     billboard_playlist.adding_playlist(end_point, songs)
 
 def updateBillboardForSAE():
