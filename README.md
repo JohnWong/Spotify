@@ -13,10 +13,15 @@
 | 服务 URL | `https://billboard-spotify-668711577072.us-central1.run.app` |
 | Cloud Scheduler 任务 | `billboard-sync`（`us-central1`，`0 */12 * * *` UTC，每 12 小时触发一次 `POST /`） |
 | 状态存储 | Google Cloud Storage（`GCS_BUCKET`），存 `refresh_token.txt`、`api.json` |
+| 目标 Playlist ID | `6M13zytAhM5hCLn4YZ5znR`（固定，不按名称查找，不自动新建） |
 
 架构：Cloud Scheduler 定时 `POST` Cloud Run 服务 → `main.py`（Flask + gunicorn）调用
 `billboard_to_spotify.updateBillboardForSAE()` 跑一次同步。OAuth 凭据与 refresh token
 通过 `sae_patch.py` 读写 GCS（`STORAGE_MODE=gcs`，默认）。
+
+Spotify refresh token 自用户授权起 6 个月过期，刷新 access token 不会延长该期限。
+收到 `400 invalid_grant` 后需要重新走 Authorization Code Flow，并把新的 refresh token
+写入 GCS；不要继续重试已经过期的 token。
 
 ### 重新部署
 
